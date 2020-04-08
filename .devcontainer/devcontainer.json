@@ -1,0 +1,15 @@
+{
+	"name": "pgbouncer_debugger",
+	"dockerFile": "../docker/Dockerfile",
+	"extensions": [
+		"ms-vscode.cpptools"
+	],
+	"containerEnv": {
+		"DISPLAY": "unix:0"
+	},
+	"mounts": [
+		"source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind,consistency=cached"
+	  ],
+	"runArgs": ["--privileged"],
+	
+}
