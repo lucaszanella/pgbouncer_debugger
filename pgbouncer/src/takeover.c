@@ -45,14 +45,14 @@ void takeover_finish(void)
 	socket_set_nonblocking(fd, 0);
 	SEND_generic(res, old_bouncer, 'Q', "s", "SHUTDOWN;");
 	if (!res)
-		die("failed to send SHUTDOWN;");
+		fatal("failed to send SHUTDOWN;");
 
 	while (1) {
 		got = safe_recv(fd, buf, sizeof(buf), 0);
 		if (got == 0)
 			break;
 		if (got < 0)
-			die("sky is falling - error while waiting result from SHUTDOWN: %s", strerror(errno));
+			fatal_perror("sky is falling - error while waiting result from SHUTDOWN");
 	}
 
 	disconnect_server(old_bouncer, false, "disko over");

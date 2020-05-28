@@ -149,7 +149,8 @@ runtest() {
 	until psql -X -h /tmp -U pgbouncer -d pgbouncer -c "show version" 2>/dev/null 1>&2; do sleep 0.1; done
 
 	printf "`date` running $1 ... "
-	eval $1 >$LOGDIR/$1.out 2>&1
+	echo "# $1 begin" >>$BOUNCER_LOG
+	eval $1 >$LOGDIR/$1.log 2>&1
 	status=$?
 	if [ $status -eq 0 ]; then
 		echo "ok"
@@ -158,15 +159,15 @@ runtest() {
 		status=0
 	else
 		echo "FAILED"
-		cat $LOGDIR/$1.out | sed 's/^/# /'
+		cat $LOGDIR/$1.log | sed 's/^/# /'
 	fi
-	date >> $LOGDIR/$1.out
+	date >> $LOGDIR/$1.log
 
 	# allow background processing to complete
 	wait
 
 	stopit test.pid
-	mv $BOUNCER_LOG $LOGDIR/$1.log
+	echo "# $1 end" >>$BOUNCER_LOG
 
 	return $status
 }
@@ -183,7 +184,6 @@ psql_bouncer() {
 test_server_ssl() {
 	reconf_bouncer "auth_type = trust" "server_tls_sslmode = require"
 	echo "hostssl all all 127.0.0.1/32 trust" > pgdata/pg_hba.conf
-	echo "hostssl all all ::1/128 trust" >> pgdata/pg_hba.conf
 	reconf_pgsql "ssl=on" "ssl_ca_file='root.crt'"
 	psql_bouncer -q -d p0 -c "select 'ssl-connect'" | tee tmp/test.tmp0
 	grep -q "ssl-connect"  tmp/test.tmp0
@@ -197,7 +197,6 @@ test_server_ssl_verify() {
 		"server_tls_ca_file = TestCA1/ca.crt"
 
 	echo "hostssl all all 127.0.0.1/32 trust" > pgdata/pg_hba.conf
-	echo "hostssl all all ::1/128 trust" >> pgdata/pg_hba.conf
 	reconf_pgsql "ssl=on" "ssl_ca_file='root.crt'"
 	psql_bouncer -q -d p0 -c "select 'ssl-full-connect'" | tee tmp/test.tmp1
 	grep -q "ssl-full-connect"  tmp/test.tmp1
@@ -213,7 +212,6 @@ test_server_ssl_pg_auth() {
 		"server_tls_cert_file = TestCA1/sites/02-bouncer.crt"
 
 	echo "hostssl all all 127.0.0.1/32 cert" > pgdata/pg_hba.conf
-	echo "hostssl all all ::1/128 cert" >> pgdata/pg_hba.conf
 	reconf_pgsql "ssl=on" "ssl_ca_file='root.crt'"
 	psql_bouncer -q -d p0 -c "select 'ssl-cert-connect'" | tee tmp/test.tmp2
 	grep "ssl-cert-connect"  tmp/test.tmp2
@@ -227,7 +225,6 @@ test_client_ssl() {
 		"client_tls_key_file = TestCA1/sites/01-localhost.key" \
 		"client_tls_cert_file = TestCA1/sites/01-localhost.crt"
 	echo "host all all 127.0.0.1/32 trust" > pgdata/pg_hba.conf
-	echo "host all all ::1/128 trust" >> pgdata/pg_hba.conf
 	reconf_pgsql "ssl=on" "ssl_ca_file='root.crt'"
 	psql_bouncer -q -d "dbname=p0 sslmode=require" -c "select 'client-ssl-connect'" | tee tmp/test.tmp
 	grep -q "client-ssl-connect"  tmp/test.tmp
@@ -235,13 +232,12 @@ test_client_ssl() {
 	return $rc
 }
 
-test_client_ssl_verify() {
+test_client_ssl() {
 	reconf_bouncer "auth_type = trust" "server_tls_sslmode = prefer" \
 		"client_tls_sslmode = require" \
 		"client_tls_key_file = TestCA1/sites/01-localhost.key" \
 		"client_tls_cert_file = TestCA1/sites/01-localhost.crt"
 	echo "host all all 127.0.0.1/32 trust" > pgdata/pg_hba.conf
-	echo "host all all ::1/128 trust" >> pgdata/pg_hba.conf
 	reconf_pgsql "ssl=on" "ssl_ca_file='root.crt'"
 	psql_bouncer -q -d "dbname=p0 sslmode=verify-full sslrootcert=TestCA1/ca.crt" -c "select 'client-ssl-connect'" | tee tmp/test.tmp 2>&1
 	grep -q "client-ssl-connect"  tmp/test.tmp
@@ -256,7 +252,6 @@ test_client_ssl_auth() {
 		"client_tls_key_file = TestCA1/sites/01-localhost.key" \
 		"client_tls_cert_file = TestCA1/sites/01-localhost.crt"
 	echo "host all all 127.0.0.1/32 trust" > pgdata/pg_hba.conf
-	echo "host all all ::1/128 trust" >> pgdata/pg_hba.conf
 	reconf_pgsql "ssl=on" "ssl_ca_file='root.crt'"
 	psql_bouncer -q -d "dbname=p0 sslmode=require sslkey=TestCA1/sites/02-bouncer.key sslcert=TestCA1/sites/02-bouncer.crt" \
 		-c "select 'client-ssl-connect'" | tee tmp/test.tmp 2>&1
@@ -284,7 +279,6 @@ test_server_ssl
 test_server_ssl_verify
 test_server_ssl_pg_auth
 test_client_ssl
-test_client_ssl_verify
 test_client_ssl_auth
 test_client_ssl_scram
 "

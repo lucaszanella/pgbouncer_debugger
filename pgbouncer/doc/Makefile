@@ -17,6 +17,8 @@ SUBLOC = doc
 abs_top_srcdir ?= $(CURDIR)/..
 include $(abs_top_srcdir)/lib/mk/antimake.mk
 
+PYTHON = python
+
 export PACKAGE_VERSION
 
 pgbouncer.%: pgbouncer_%.md
@@ -31,4 +33,4 @@ pgbouncer_5.md: filter.py frag-config-man.md config.md
 .INTERMEDIATE: pgbouncer_1.md pgbouncer_5.md
 
 web:
-	$(MAKE) -C ../../pgbouncer.github.io
+	make -C ../../pgbouncer.github.io

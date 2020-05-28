@@ -979,7 +979,7 @@ static void dns_callback(void *arg, const struct sockaddr *sa, int salen)
 	server->dns_token = NULL;
 
 	if (!sa) {
-		disconnect_server(server, true, "server DNS lookup failed");
+		disconnect_server(server, true, "server dns lookup failed");
 		return;
 	} else if (sa->sa_family == AF_INET) {
 		char buf[64];
@@ -1129,7 +1129,7 @@ bool evict_user_connection(PgUser *user)
 void launch_new_connection(PgPool *pool)
 {
 	PgSocket *server;
-	int max;
+	int total;
 
 	/* allow only small number of connection attempts at a time */
 	if (!statlist_empty(&pool->new_server_list)) {
@@ -1148,51 +1148,51 @@ void launch_new_connection(PgPool *pool)
 	}
 
 	/* is it allowed to add servers? */
-	max = pool_server_count(pool);
-	if (max >= pool->db->pool_size && pool->welcome_msg_ready) {
+	total = pool_server_count(pool);
+	if (total >= pool->db->pool_size && pool->welcome_msg_ready) {
 		/* should we use reserve pool? */
 		if (cf_res_pool_timeout && pool->db->res_pool_size) {
 			usec_t now = get_cached_time();
 			PgSocket *c = first_socket(&pool->waiting_client_list);
 			if (c && (now - c->request_time) >= cf_res_pool_timeout) {
-				if (max < pool->db->pool_size + pool->db->res_pool_size) {
+				if (total < pool->db->pool_size + pool->db->res_pool_size) {
 					slog_warning(c, "taking connection from reserve_pool");
 					goto allow_new;
 				}
 			}
 		}
 		log_debug("launch_new_connection: pool full (%d >= %d)",
-				max, pool->db->pool_size);
+				total, pool->db->pool_size);
 		return;
 	}
 
 allow_new:
-	max = database_max_connections(pool->db);
-	if (max > 0) {
+	total = database_max_connections(pool->db);
+	if (total > 0) {
 		/* try to evict unused connections first */
-		while (pool->db->connection_count >= max) {
+		while (pool->db->connection_count >= total) {
 			if (!evict_connection(pool->db)) {
 				break;
 			}
 		}
-		if (pool->db->connection_count >= max) {
-			log_debug("launch_new_connection: database '%s' full (%d >= %d)",
-				  pool->db->name, pool->db->connection_count, max);
+		if (pool->db->connection_count >= total) {
+			log_debug("launch_new_connection: database full (%d >= %d)",
+					pool->db->connection_count, total);
 			return;
 		}
 	}
 
-	max = user_max_connections(pool->user);
-	if (max > 0) {
+	total = user_max_connections(pool->user);
+	if (total > 0) {
 		/* try to evict unused connection first */
-		while (pool->user->connection_count >= max) {
+		while (pool->user->connection_count >= total) {
 			if (!evict_user_connection(pool->user)) {
 				break;
 			}
 		}
-		if (pool->user->connection_count >= max) {
-			log_debug("launch_new_connection: user '%s' full (%d >= %d)",
-				  pool->user->name, pool->user->connection_count, max);
+		if (pool->user->connection_count >= total) {
+			log_debug("launch_new_connection: user full (%d >= %d)",
+					pool->user->connection_count, total);
 			return;
 		}
 	}

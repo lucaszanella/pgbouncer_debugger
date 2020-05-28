@@ -12,7 +12,7 @@ test -f "$1/ca.key" || {
   exit 1
 }
 
-days=1024
+days=10240
 
 . ./lib.sh
 

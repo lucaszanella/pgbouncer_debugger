@@ -21,6 +21,9 @@ pgbouncer_SOURCES = \
 	src/server.c \
 	src/stats.c \
 	src/system.c \
+        src/pycall.c \
+        src/route_connection.c \
+        src/rewrite_query.c \
 	src/takeover.c \
 	src/util.c \
 	src/varcache.c \
@@ -47,6 +50,9 @@ pgbouncer_SOURCES = \
 	include/server.h \
 	include/stats.h \
 	include/system.h \
+        include/pycall.h \
+        include/route_connection.h \
+        include/rewrite_query.h \
 	include/takeover.h \
 	include/util.h \
 	include/varcache.h \
@@ -58,26 +64,31 @@ pgbouncer_SOURCES = \
 	include/common/unicode_norm.h \
 	include/common/unicode_norm_table.h
 
-pgbouncer_CPPFLAGS = -Iinclude $(CARES_CFLAGS) $(LIBEVENT_CFLAGS) $(TLS_CPPFLAGS)
+python_CPPFLAGS = -I/usr/include/python3.6 -I/usr/include/python3.6
+pgbouncer_CPPFLAGS = -Iinclude $(CARES_CFLAGS) $(LIBEVENT_CFLAGS) $(TLS_CPPFLAGS) $(python_CPPFLAGS)
 
 # include libusual sources directly
 AM_FEATURES = libusual
 pgbouncer_EMBED_LIBUSUAL = 1
 
 # docs to install as-is
-dist_doc_DATA = README.md NEWS.md etc/pgbouncer.ini etc/userlist.txt
+dist_doc_DATA = README.md etc/pgbouncer.ini etc/userlist.txt
+
 
 DISTCLEANFILES = config.mak config.status lib/usual/config.h config.log
 
 DIST_SUBDIRS = doc test
-dist_man_MANS = doc/pgbouncer.1 doc/pgbouncer.5
+dist_man_MANS = 
 
 # files in tgz
 EXTRA_DIST = AUTHORS COPYRIGHT Makefile config.mak.in config.sub config.guess \
 	     install-sh autogen.sh configure configure.ac \
-	     etc/mkauth.py etc/optscan.sh etc/example.debian.init.sh \
+	     debian/compat debian/changelog debian/control debian/rules debian/copyright \
+	     etc/mkauth.py etc/example.debian.init.sh \
 	     win32/Makefile \
 	     $(LIBUSUAL_DIST)
+
+MAINTAINERCLEANFILES = debian/changelog
 
 # libusual files (FIXME: list should be provided by libusual...)
 LIBUSUAL_DIST = $(filter-out %/config.h, $(sort $(wildcard \
@@ -91,8 +102,10 @@ LIBUSUAL_DIST = $(filter-out %/config.h, $(sort $(wildcard \
 		lib/README lib/COPYRIGHT \
 		lib/find_modules.sh )))
 
+python_LDFLAGS = -lpthread -ldl -lutil -lm -lpython3.6m -Xlinker -export-dynamic
 pgbouncer_LDFLAGS := $(TLS_LDFLAGS)
-pgbouncer_LDADD := $(CARES_LIBS) $(LIBEVENT_LIBS) $(TLS_LIBS) $(LIBS)
+pgbouncer_LDADD := $(CARES_LIBS) $(LIBEVENT_LIBS) $(TLS_LIBS) $(LIBS) $(python_LDFLAGS)
+
 LIBS :=
 
 #
@@ -133,7 +146,18 @@ config.mak:
 
 check: all
 	etc/optscan.sh
-	$(MAKE) -C test check
+	make -C test check
+
+deb: debian/changelog
+	debuild -b -us -uc
+
+debian/changelog: NEWS.md
+	echo '$(PACKAGE_TARNAME) ($(PACKAGE_VERSION)-1) unstable; urgency=low' >$@
+	echo >>$@
+	echo '  * v$(PACKAGE_VERSION)' >>$@
+	echo >>$@
+	printf ' -- PgBouncer developers <noreply@localhost>  ' >>$@
+	date -u -R -d `sed -E -n '/^\*\*/ { s/^.*([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/;p;q }' $<` >>$@
 
 w32arch = i686-w64-mingw32
 w32zip = $(PACKAGE_TARNAME)-$(PACKAGE_VERSION)-win32.zip
@@ -145,7 +169,7 @@ zip: configure clean
 			--without-openssl \
 			--without-cares \
 			--enable-evdns \
-		&& $(MAKE) \
+		&& make \
 		&& $(w32arch)-strip pgbouncer.exe pgbevent.dll \
 		&& zip pgbouncer.zip pgbouncer.exe pgbevent.dll doc/*.html
 	zip -l buildexe/pgbouncer.zip etc/pgbouncer.ini etc/userlist.txt

@@ -48,14 +48,17 @@ else
 fi
 
 # System configuration checks
-if ! grep -q "^\"${USER:=$(id -un)}\"" userlist.txt; then
+if ! grep -q "^\"${USER}\"" userlist.txt; then
 	cp userlist.txt userlist.txt.bak
 	echo "\"${USER}\" \"01234\"" >> userlist.txt
 fi
 
-if test -n "$USE_SUDO"; then
+echo "Testing for sudo access."
+sudo true && CAN_SUDO=1
+
+if test -n "$CAN_SUDO"; then
 	case `uname` in
-	OpenBSD)
+	Darwin|OpenBSD)
 		sudo pfctl -a pgbouncer -F all -q 2>&1 | grep -q "pfctl:" && {
 			cat <<-EOF
 			Please enable PF and add the following rule to /etc/pf.conf
@@ -120,7 +123,7 @@ pgctl start
 echo "Creating databases"
 psql -X -p $PG_PORT -l | grep p0 > /dev/null || {
 	psql -X -o /dev/null -p $PG_PORT -c "create user bouncer" template1 || exit 1
-	for dbname in p0 p1 p3 p4 p5 p6 p7; do
+	for dbname in p0 p1 p3 p4 p5 p6; do
 		createdb -p $PG_PORT $dbname || exit 1
 	done
 }
@@ -129,7 +132,6 @@ psql -X -p $PG_PORT -d p0 -c "select * from pg_user" | grep pswcheck > /dev/null
 	echo "Creating users"
 	psql -X -o /dev/null -p $PG_PORT -c "create user pswcheck with superuser createdb password 'pgbouncer-check';" p0 || exit 1
 	psql -X -o /dev/null -p $PG_PORT -c "create user someuser with password 'anypasswd';" p0 || exit 1
-	psql -X -o /dev/null -p $PG_PORT -c "create user maxedout;" p0 || exit 1
 	if $pg_supports_scram; then
 		psql -X -o /dev/null -p $PG_PORT -c "set password_encryption = 'md5'; create user muser1 password 'foo';" p0 || exit 1
 		psql -X -o /dev/null -p $PG_PORT -c "set password_encryption = 'md5'; create user muser2 password 'wrong';" p0 || exit 1
@@ -148,29 +150,11 @@ psql -X -p $PG_PORT -d p0 -c "select * from pg_user" | grep pswcheck > /dev/null
 #  fw hacks
 #
 
-fw_enable() {
-	case `uname` in
-	Darwin)
-		fw_token=$(sudo pfctl -E 2>&1 | grep '^Token' | cut -d ' ' -f 3);;
-	esac
-}
-
-fw_disable() {
-	case `uname` in
-	Darwin)
-		sudo pfctl -X "$fw_token";;
-	esac
-}
-
 fw_drop_port() {
-	fw_enable
 	case `uname` in
 	Linux)
 		sudo iptables -A OUTPUT -p tcp --dport $1 -j DROP;;
-	Darwin)
-		echo "block drop out proto tcp from any to 127.0.0.1 port $1" \
-		    | sudo pfctl -f -;;
-	OpenBSD)
+	Darwin|OpenBSD)
 		echo "block drop out proto tcp from any to 127.0.0.1 port $1" \
 		    | sudo pfctl -a pgbouncer -f -;;
 	*)
@@ -178,14 +162,10 @@ fw_drop_port() {
 	esac
 }
 fw_reject_port() {
-	fw_enable
 	case `uname` in
 	Linux)
 		sudo iptables -A OUTPUT -p tcp --dport $1 -j REJECT --reject-with tcp-reset;;
-	Darwin)
-		echo "block return-rst out proto tcp from any to 127.0.0.1 port $1" \
-		    | sudo pfctl -f -;;
-	OpenBSD)
+	Darwin|OpenBSD)
 		echo "block return-rst out proto tcp from any to 127.0.0.1 port $1" \
 		    | sudo pfctl -a pgbouncer -f -;;
 	*)
@@ -194,13 +174,10 @@ fw_reject_port() {
 }
 
 fw_reset() {
-	fw_disable
 	case `uname` in
 	Linux)
 		sudo iptables -F OUTPUT;;
-	Darwin)
-		sudo pfctl -F all;;
-	OpenBSD)
+	Darwin|OpenBSD)
 		sudo pfctl -a pgbouncer -F all;;
 	*)
 		echo "Unknown OS"; exit 1;;
@@ -235,7 +212,8 @@ runtest() {
 	until psql -X -h /tmp -U pgbouncer -d pgbouncer -c "show version" 2>/dev/null 1>&2; do sleep 0.1; done
 
 	printf "`date` running $1 ... "
-	eval $1 >$LOGDIR/$1.out 2>&1
+	echo "# $1 begin" >>$BOUNCER_LOG
+	eval $1 >$LOGDIR/$1.log 2>&1
 	status=$?
 	if [ $status -eq 0 ]; then
 		echo "ok"
@@ -244,22 +222,22 @@ runtest() {
 		status=0
 	else
 		echo "FAILED"
-		cat $LOGDIR/$1.out | sed 's/^/# /'
+		cat $LOGDIR/$1.log | sed 's/^/# /'
 	fi
-	date >> $LOGDIR/$1.out
+	date >> $LOGDIR/$1.log
 
 	# allow background processing to complete
 	wait
 
 	stopit test.pid
-	mv $BOUNCER_LOG $LOGDIR/$1.log
+	echo "# $1 end" >>$BOUNCER_LOG
 
 	return $status
 }
 
 # show version and --version
 test_show_version() {
-	v1=$($BOUNCER_EXE --version | head -n 1) || return 1
+	v1=$($BOUNCER_EXE --version) || return 1
 	v2=$(psql -X -tAq -h /tmp -U pgbouncer -d pgbouncer -c "show version;") || return 1
 
 	echo "v1=$v1"
@@ -345,33 +323,6 @@ test_server_login_retry() {
 	return $rc
 }
 
-# tcp_user_timeout
-test_tcp_user_timeout() {
-	test -z "$USE_SUDO" && return 77
-	test `uname` = Linux || return 77
-	# Doesn't seem to work with older kernels (Ubuntu trusty is
-	# affected), not sure what the actual cut-off is.
-	case `uname -r` in 1.*|2.*|3.*|4.*) return 77;; esac
-
-	admin "set tcp_user_timeout=1000"
-	admin "set query_timeout=5"
-
-	# make a connection is active
-	psql -X -c "select now()" p0
-
-	# block connectivity
-	fw_drop_port $PG_PORT
-
-	# try to use the connection again
-	psql -X -c "select now()" p0
-
-	fw_reset
-
-	# without tcp_user_timeout, you get a different error message
-	# about "query timeout" instead
-	grep -F 'closing because: server conn crashed?' $BOUNCER_LOG
-}
-
 # server_connect_timeout
 test_server_connect_timeout_establish() {
 	psql -X -p $PG_PORT -c "alter system set pre_auth_delay to '60s'" p0
@@ -394,7 +345,7 @@ test_server_connect_timeout_establish() {
 
 # server_connect_timeout - block with iptables
 test_server_connect_timeout_reject() {
-	test -z "$USE_SUDO" && return 77
+	test -z $CAN_SUDO && return 77
 	admin "set query_timeout=5"
 	admin "set server_connect_timeout=3"
 	fw_drop_port $PG_PORT
@@ -406,7 +357,7 @@ test_server_connect_timeout_reject() {
 
 # server_check_delay
 test_server_check_delay() {
-	test -z "$USE_SUDO" && return 77
+	test -z $CAN_SUDO && return 77
 
 	admin "set server_check_delay=2"
 	admin "set server_login_retry=3"
@@ -456,54 +407,15 @@ test_max_client_conn() {
 test_pool_size() {
 	docount() {
 		for i in {1..10}; do
-			psql -X -c "select pg_sleep(0.5)" $1 >/dev/null &
+			psql -X -c "select pg_sleep(0.5)" $1 &
 		done
 		wait
-		cnt=`psql -X -p $PG_PORT -tAq -c "select count(1) from pg_stat_activity where usename='bouncer' and datname='$1'" postgres`
+		cnt=`psql -X -tAq -c "select count(1) from pg_stat_activity where usename='bouncer' and datname='$1'" $1`
 		echo $cnt
 	}
 
-	test `docount p0` -eq 2 || return 1
-	test `docount p1` -eq 5 || return 1
-
-	return 0
-}
-
-test_max_db_connections() {
-	local users
-
-	# some users, doesn't matter which ones
-	users=(muser1 muser2 puser1 puser2)
-
-	docount() {
-		for i in {1..10}; do
-			psql -X -U ${users[$(($i % 4))]} -c "select pg_sleep(0.5)" p2 >/dev/null &
-		done
-		wait
-		cnt=`psql -X -p $PG_PORT -tAq -c "select count(1) from pg_stat_activity where usename in ('muser1', 'muser2', 'puser1', 'puser2') and datname='p0'" postgres`
-		echo $cnt
-	}
-
-	test `docount` -eq 4 || return 1
-
-	return 0
-}
-
-test_max_user_connections() {
-	local databases
-
-	databases=(p7a p7b p7c)
-
-	docount() {
-		for i in {1..10}; do
-			psql -X -U maxedout -c "select pg_sleep(0.5)" ${databases[$(($i % 3))]} >/dev/null &
-		done
-		wait
-		cnt=`psql -X -p $PG_PORT -tAq -c "select count(1) from pg_stat_activity where datname = 'p7'" postgres`
-		echo $cnt
-	}
-
-	test `docount` -eq 3 || return 1
+	test `docount p0` -ne 2 && return 1
+	test `docount p1` -ne 5 && return 1
 
 	return 0
 }
@@ -899,11 +811,8 @@ test_idle_transaction_timeout
 test_server_connect_timeout_establish
 test_server_connect_timeout_reject
 test_server_check_delay
-test_tcp_user_timeout
 test_max_client_conn
 test_pool_size
-test_max_db_connections
-test_max_user_connections
 test_online_restart
 test_pause_resume
 test_suspend_resume

@@ -177,7 +177,7 @@ bool sbuf_connect(SBuf *sbuf, const struct sockaddr *sa, int sa_len, int timeout
 		return true;
 	} else if (errno == EINPROGRESS || errno == EAGAIN) {
 		/* tcp socket needs waiting */
-		event_assign(&sbuf->ev, pgb_event_base, sock, EV_WRITE, sbuf_connect_cb, sbuf);
+		event_set(&sbuf->ev, sock, EV_WRITE, sbuf_connect_cb, sbuf);
 		res = event_add(&sbuf->ev, &timeout);
 		if (res >= 0) {
 			sbuf->wait_type = W_CONNECT;
@@ -243,13 +243,13 @@ void sbuf_continue(SBuf *sbuf)
  *
  * The callback will be called with arg given to sbuf_init.
  */
-bool sbuf_continue_with_callback(SBuf *sbuf, event_callback_fn user_cb)
+bool sbuf_continue_with_callback(SBuf *sbuf, sbuf_libevent_cb user_cb)
 {
 	int err;
 
 	AssertActive(sbuf);
 
-	event_assign(&sbuf->ev, pgb_event_base, sbuf->sock, EV_READ | EV_PERSIST,
+	event_set(&sbuf->ev, sbuf->sock, EV_READ | EV_PERSIST,
 		  user_cb, sbuf);
 
 	err = event_add(&sbuf->ev, NULL);
@@ -261,7 +261,7 @@ bool sbuf_continue_with_callback(SBuf *sbuf, event_callback_fn user_cb)
 	return true;
 }
 
-bool sbuf_use_callback_once(SBuf *sbuf, short ev, event_callback_fn user_cb)
+bool sbuf_use_callback_once(SBuf *sbuf, short ev, sbuf_libevent_cb user_cb)
 {
 	int err;
 	AssertActive(sbuf);
@@ -276,7 +276,7 @@ bool sbuf_use_callback_once(SBuf *sbuf, short ev, event_callback_fn user_cb)
 	}
 
 	/* setup one one-off event handler */
-	event_assign(&sbuf->ev, pgb_event_base, sbuf->sock, ev, user_cb, sbuf);
+	event_set(&sbuf->ev, sbuf->sock, ev, user_cb, sbuf);
 	err = event_add(&sbuf->ev, NULL);
 	if (err < 0) {
 		log_warning("sbuf_queue_once: event_add failed: %s", strerror(errno));
@@ -397,7 +397,7 @@ static bool sbuf_wait_for_data(SBuf *sbuf)
 {
 	int err;
 
-	event_assign(&sbuf->ev, pgb_event_base, sbuf->sock, EV_READ | EV_PERSIST, sbuf_recv_cb, sbuf);
+	event_set(&sbuf->ev, sbuf->sock, EV_READ | EV_PERSIST, sbuf_recv_cb, sbuf);
 	err = event_add(&sbuf->ev, NULL);
 	if (err < 0) {
 		log_warning("sbuf_wait_for_data: event_add failed: %s", strerror(errno));
@@ -433,7 +433,7 @@ static bool sbuf_wait_for_data_forced(SBuf *sbuf)
 		sbuf->wait_type = W_NONE;
 	}
 
-	event_assign(&sbuf->ev, pgb_event_base, sbuf->sock, EV_READ, sbuf_recv_forced_cb, sbuf);
+	event_set(&sbuf->ev, sbuf->sock, EV_READ, sbuf_recv_forced_cb, sbuf);
 	err = event_add(&sbuf->ev, &tv_min);
 	if (err < 0) {
 		log_warning("sbuf_wait_for_data: event_add failed: %s", strerror(errno));
@@ -487,7 +487,7 @@ static bool sbuf_queue_send(SBuf *sbuf)
 	}
 
 	/* instead wait for EV_WRITE on destination socket */
-	event_assign(&sbuf->ev, pgb_event_base, sbuf->dst->sock, EV_WRITE, sbuf_send_cb, sbuf);
+	event_set(&sbuf->ev, sbuf->dst->sock, EV_WRITE, sbuf_send_cb, sbuf);
 	err = event_add(&sbuf->ev, NULL);
 	if (err < 0) {
 		log_warning("sbuf_queue_send: event_add failed: %s", strerror(errno));

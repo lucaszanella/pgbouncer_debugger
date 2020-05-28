@@ -363,10 +363,6 @@ bool handle_auth_response(PgSocket *client, PktHdr *pkt) {
 			disconnect_server(server, false, "bad packet");
 			return false;
 		}
-		if (length == (uint32_t)-1) {
-			disconnect_server(server, false, "login query response contained null user name");
-			return false;
-		}
 		if (!mbuf_get_chars(&pkt->data, length, &username)) {
 			disconnect_server(server, false, "bad packet");
 			return false;
@@ -483,10 +479,10 @@ static bool decide_startup_pool(PgSocket *client, PktHdr *pkt)
 		} else if (strcmp(key, "application_name") == 0) {
 			set_appname(client, val);
 			appname_found = true;
-		} else if (varcache_set(&client->vars, key, val)) {
-			slog_debug(client, "got var: %s=%s", key, val);
 		} else if (strlist_contains(cf_ignore_startup_params, key)) {
 			slog_debug(client, "ignoring startup parameter: %s=%s", key, val);
+		} else if (varcache_set(&client->vars, key, val)) {
+			slog_debug(client, "got var: %s=%s", key, val);
 		} else {
 			slog_warning(client, "unsupported startup parameter: %s=%s", key, val);
 			disconnect_client(client, true, "unsupported startup parameter: %s", key);
@@ -863,6 +859,14 @@ static bool handle_client_work(PgSocket *client, PktHdr *pkt)
 
 	if (client->pool->db->admin)
 		return admin_handle_client(client, pkt);
+
+        /* pgbouncer-rr extensions: query rewrite & client connection routing */
+        if (pkt->type == 'Q' || pkt->type == 'P') {
+                if (!rewrite_query(client, pkt)) {
+                        return false;
+                }
+                route_client_connection(client, pkt);
+        }
 
 	/* acquire server */
 	if (!find_server(client))

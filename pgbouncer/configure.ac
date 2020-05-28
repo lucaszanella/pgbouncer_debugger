@@ -17,7 +17,6 @@ AC_USUAL_PROGRAM_CHECK
 PKG_PROG_PKG_CONFIG
 
 AC_CHECK_PROGS(PANDOC, pandoc, pandoc)
-AC_CHECK_PROGS(PYTHON, [python python3 python2], python)
 
 dnl check for windows tools
 if test "$PORTNAME" = "win32"; then
@@ -78,20 +77,6 @@ AC_ARG_WITH(pam,
         fi
     fi
   ], [])
-
-dnl Check for systemd support
-AC_MSG_CHECKING([whether to build with systemd support])
-AC_ARG_WITH(systemd,
-            [AC_HELP_STRING([--with-systemd], [Build with systemd support])],
-            [if test "$withval" != no; then with_systemd=yes; else with_systemd=no; fi],
-            [with_systemd=no])
-AC_MSG_RESULT([$with_systemd])
-AC_SUBST(with_systemd)[]dnl
-if test "$with_systemd" = yes; then
-  AC_DEFINE([USE_SYSTEMD], 1, [Define to build with systemd support. (--with-systemd)])
-  AC_CHECK_HEADER(systemd/sd-daemon.h, [], [AC_MSG_ERROR([header file <systemd/sd-daemon.h> is required for systemd support])])
-  AC_SEARCH_LIBS(sd_notify, systemd)
-fi
 
 ##
 ## DNS backend
@@ -216,17 +201,16 @@ echo ""
 echo "Results:"
 dnl Note: Report here should match selection in src/dnslookup.c
 if test "$use_cares" = "yes"; then
-  echo "  adns    = c-ares"
+  echo "  adns = c-ares"
 elif test "$use_udns" = "yes"; then
-  echo "  adns    = udns"
+  echo "  adns = udns"
 elif test "$use_evdns" = "yes"; then
-  echo "  adns    = evdns2"
+  echo "  adns = evdns2"
 elif test "$ac_cv_usual_glibc_gaia" = "yes"; then
-  echo "  adns    = libc"
+  echo "  adns = libc"
 else
-  echo "  adns    = compat"
+  echo "  adns = compat"
 fi
-echo "  pam     = $pam_support"
-echo "  systemd = $with_systemd"
-echo "  tls     = $tls_support"
+echo "  pam  = $pam_support"
+echo "  tls  = $tls_support"
 echo ""

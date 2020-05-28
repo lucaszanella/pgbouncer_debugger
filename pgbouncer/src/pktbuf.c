@@ -90,7 +90,7 @@ struct PktBuf *pktbuf_temp(void)
 	if (!temp_pktbuf)
 		temp_pktbuf = pktbuf_dynamic(512);
 	if (!temp_pktbuf)
-		die("out of memory");
+		fatal("failed to create temp pktbuf");
 	pktbuf_reset(temp_pktbuf);
 	return temp_pktbuf;
 }
@@ -141,7 +141,7 @@ static void pktbuf_send_func(evutil_socket_t fd, short flags, void *arg)
 	buf->send_pos += res;
 
 	if (buf->send_pos < buf->write_pos) {
-		event_assign(buf->ev, pgb_event_base, fd, EV_WRITE, pktbuf_send_func, buf);
+		event_set(buf->ev, fd, EV_WRITE, pktbuf_send_func, buf);
 		res = event_add(buf->ev, NULL);
 		if (res < 0) {
 			log_error("pktbuf_send_func: %s", strerror(errno));

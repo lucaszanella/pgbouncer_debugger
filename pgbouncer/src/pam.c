@@ -118,17 +118,17 @@ void pam_init(void)
 
 	rc = pthread_mutex_init(&pam_queue_tail_mutex, NULL);
 	if (rc != 0) {
-		die("failed to initialize a mutex: %s", strerror(errno));
+		fatal("failed to init a mutex");
 	}
 
 	rc = pthread_cond_init(&pam_data_available, NULL);
 	if (rc != 0) {
-		die("failed to initialize a condition variable: %s", strerror(errno));
+		fatal("failed to init a condition variable");
 	}
 
 	rc = pthread_create(&pam_worker_thread, NULL, &pam_auth_worker, NULL);
 	if (rc != 0) {
-		die("failed to create the authentication thread: %s", strerror(errno));
+		fatal("failed to create the authentication thread");
 	}
 }
 
@@ -415,7 +415,7 @@ void pam_init(void)
 
 void pam_auth_begin(PgSocket *client, const char *passwd)
 {
-	die("PAM authentication is not supported");
+	fatal("PAM authentication is not supported");
 }
 
 int pam_poll(void)

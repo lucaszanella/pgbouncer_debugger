@@ -140,7 +140,7 @@ static bool add_listen(int af, const struct sockaddr *sa, int salen)
 		if (res < 0)
 			goto failed;
 #else
-		die("so_reuseport not supported on this platform");
+		fatal("so_reuseport not supported on this platform");
 #endif
 	}
 
@@ -211,7 +211,7 @@ static void create_unix_socket(const char *socket_dir, int listen_port)
 	snprintf(lockfile, sizeof(lockfile), "%s.lock", un.sun_path);
 	res = lstat(lockfile, &st);
 	if (res == 0)
-		die("unix port %d is in use", listen_port);
+		fatal("unix port %d is in use", listen_port);
 
 	/* expect old bouncer gone */
 	unlink(un.sun_path);
@@ -331,7 +331,7 @@ loop:
 		 * wait a bit, hope that admin resolves somehow
 		 */
 		log_error("accept() failed: %s", strerror(errno));
-		evtimer_assign(&ev_err, pgb_event_base, err_wait_func, NULL);
+		evtimer_set(&ev_err, err_wait_func, NULL);
 		safe_evtimer_add(&ev_err, &err_timeout);
 		suspend_pooler();
 		return;
@@ -414,7 +414,7 @@ void resume_pooler(void)
 		ls = container_of(el, struct ListenSocket, node);
 		if (ls->active)
 			continue;
-		event_assign(&ls->ev, pgb_event_base, ls->fd, EV_READ | EV_PERSIST, pool_accept, ls);
+		event_set(&ls->ev, ls->fd, EV_READ | EV_PERSIST, pool_accept, ls);
 		if (event_add(&ls->ev, NULL) < 0) {
 			log_warning("event_add failed: %s", strerror(errno));
 			return;
@@ -448,7 +448,7 @@ static bool parse_addr(void *arg, const char *addr)
 
 	res = getaddrinfo(addr, service, &hints, &gaires);
 	if (res != 0) {
-		die("getaddrinfo('%s', '%d') = %s [%d]", addr ? addr : "*",
+		fatal("getaddrinfo('%s', '%d') = %s [%d]", addr ? addr : "*",
 		      cf_listen_port, gai_strerror(res), res);
 	}
 
@@ -477,13 +477,13 @@ void pooler_setup(void)
 
 	ok = parse_word_list(cf_listen_addr, parse_addr, NULL);
 	if (!ok)
-		die("failed to parse listen_addr list: %s", cf_listen_addr);
+		fatal("failed to parse listen_addr list: %s", cf_listen_addr);
 
 	if (cf_unix_socket_dir && *cf_unix_socket_dir)
 		create_unix_socket(cf_unix_socket_dir, cf_listen_port);
 
 	if (!statlist_count(&sock_list))
-		die("nowhere to listen on");
+		fatal("nowhere to listen on");
 
 	resume_pooler();
 }
